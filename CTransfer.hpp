@@ -1,5 +1,6 @@
 #pragma once
 
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include <WinSock2.h> // WinSock2.h must be before windows.h, or will cause redefinition error
 #include <WS2tcpip.h>
 #pragma comment(lib,"Ws2_32.lib")
@@ -19,6 +20,58 @@ using std::vector;
 #define TString std::string
 #define TStringStream std::stringstream
 #endif
+
+#define WM_SOCKRECV (WM_APP + 0x200)
+
+uint32_t GetCRC32(CONST BYTE * pbyBuffer, unsigned int uiSize)
+{
+	static uint32_t CRC32Table[256];
+	static bool bGenerated = false;
+	if (!bGenerated)
+	{
+		// Polynomial representations
+		// Normal : 0x04C11DB7
+		// Reversed : 0xEDB88320
+		// Reversed reciprocal : 0x82608EDB
+
+		// Width: 32
+		// Poly : 04C11DB7
+		// RefIn : True
+		// RefOut : True
+		// XorOut : FFFFFFFF
+
+		uint32_t CRC;
+		for (int i = 0; i < 256; i++)
+		{
+			CRC = i;
+			for (int j = 0; j < 8; j++)
+			{
+				if (CRC & 1)
+				{
+					CRC = (CRC >> 1) ^ 0x04C11DB7;
+				}
+				else
+				{
+					CRC >>= 1;
+				}
+			}
+			CRC32Table[i] = CRC;
+		}
+
+		bGenerated = true;
+	}
+
+	uint32_t CRC;
+
+	CRC = 0xFFFFFFFF; // Initial value
+
+	for (unsigned int ui = 0; ui < uiSize; ui++)
+	{
+		CRC = CRC32Table[(CRC ^ pbyBuffer[ui]) & 0xFF] ^ (CRC >> 8);
+	}
+		
+	return CRC ^ 0xFFFFFFFF;// Final XOR value
+}
 
 class CTransfer
 {
@@ -64,14 +117,30 @@ public:
 		m_uiTTL = uiTTL;
 	}
 
-	TString GetMulticastIP()
+	TString GetMulticastIP() const
 	{
 		return m_szMulticastIP;
 	}
 
-	unsigned int GetMulticastPort()
+	unsigned int GetMulticastPort() const
 	{
 		return m_uiPort;
+	}
+
+	TString GetMulticastPortString() const
+	{
+		TStringStream ss;
+		ss << m_uiPort;
+
+		TString sz;
+		ss >> sz;
+
+		return sz;
+	}
+
+	TString GetName() const
+	{
+		return m_szName;
 	}
 
 	bool EnterChat()
@@ -167,7 +236,7 @@ public:
 		return true;
 	}
 
-	bool StartChat()
+	bool BeginChat()
 	{
 		m_hSockChatMark = WSAJoinLeaf(m_hSock,
 			(SOCKADDR *)(&m_tSockAddrMulticast), sizeof(m_tSockAddrMulticast),
@@ -175,29 +244,41 @@ public:
 
 		if (INVALID_SOCKET == m_hSockChatMark)
 		{
-			ErrMsgBox(TEXT("StartChat"), TEXT("WSAJoinLeaf"));
+			ErrMsgBox(TEXT("BeginChat"), TEXT("WSAJoinLeaf"));
 			
 			m_hSockChatMark = NULL;
 			return false;
 		}
 
-		return true;
-	}
-
-	bool StopChat()
-	{
-		if (SOCKET_ERROR == closesocket(m_hSockChatMark))
+		if (SOCKET_ERROR == WSAAsyncSelect(m_hSockChatMark, m_hwnd, WM_SOCKRECV, FD_READ))
 		{
-			ErrMsgBox(TEXT("StopChat"), TEXT("closesocket"));
+			ErrMsgBox(TEXT("BeginChat"), TEXT("WSAAsyncSelect"));
+
 			return false;
 		}
 
-		m_hSockChatMark = NULL;
+		return true;
+	}
+
+	bool EndChat()
+	{
+		if (m_hSock == m_hSockChatMark)
+		{
+			m_hSockChatMark = NULL;
+		}
+
+		if (SOCKET_ERROR == closesocket(m_hSock))
+		{
+			ErrMsgBox(TEXT("EndChat"), TEXT("closesocket"));
+			return false;
+		}
+
+		m_hSock = NULL;
 		return true;
 	}
 
 	void ErrMsgBox(LPCTSTR szLocation, LPCTSTR szCalling,
-		int * piLastErrorCode = nullptr, bool bIsCodeUseToOutputDirectly = false)
+		int * piLastErrorCode = nullptr, bool bIsCodeUseToOutputDirectly = false) const
 	{
 		TStringStream ss;
 		ss << TEXT("发生运行错误，错误代码：");
@@ -236,7 +317,7 @@ public:
 		MessageBox(m_hwnd, szErrShow.c_str(), m_szCaption.c_str(), MB_ICONERROR | MB_OK);
 	}
 
-	vector<TString> GetValidIP(bool * pbSuccess)
+	vector<TString> GetValidIP(bool * pbSuccess) const
 	{
 		vector<TString> vValidIP;
 
@@ -285,6 +366,192 @@ public:
 		return vValidIP;
 	}
 
+	struct TPackage
+	{
+		BYTE byFrmBeg[2];
+
+		BYTE byStyle;
+		BYTE byMode;
+
+		DWORD dwDataSize;
+		DWORD dwDataCRC32; // Option
+
+		DWORD dwMsgNumber;
+		DWORD dwMsgTotal;
+
+		BYTE byData[4096]; // Option size, max is 4096Bytes(4KB)
+
+		BYTE byFrmEnd[2];
+
+		#define TRN_PKG_STYLE_MESSAGE  0
+		#define TRN_PKG_STYLE_FILE     1
+		#define TRN_PKG_MODE_ENABLECRC 0x01
+
+		TPackage()
+		{
+			this->byFrmBeg[0] = 'M';
+			this->byFrmBeg[1] = 'C';
+
+			this->byStyle = TRN_PKG_STYLE_MESSAGE;
+			this->byMode = TRN_PKG_MODE_ENABLECRC;
+
+			this->dwDataSize = 0;
+			this->dwDataCRC32 = 0;
+
+			this->dwMsgNumber = 0;
+			this->dwMsgTotal = 1;
+
+			this->byFrmEnd[0] = 'C';
+			this->byFrmEnd[1] = '.';
+		}
+	} m_tPackage;
+
+	bool Send(TPackage * ptPackage = nullptr)
+	{
+		TPackage * ptPkg = &m_tPackage;
+		if (ptPackage)
+		{
+			ptPkg = ptPackage;
+		}
+
+		DWORD dwPackageSize =
+			sizeof(TPackage::byFrmBeg)    + sizeof(TPackage::byFrmEnd)   +
+			sizeof(TPackage::byStyle)     + sizeof(TPackage::byMode)     +
+			sizeof(TPackage::dwMsgNumber) + sizeof(TPackage::dwMsgTotal) +
+			sizeof(TPackage::dwDataSize)  + ptPkg->dwDataSize;
+		if (ptPkg->byMode & TRN_PKG_MODE_ENABLECRC)
+		{
+			dwPackageSize += sizeof(TPackage::dwDataCRC32);
+		}
+
+		BYTE * pbyPackage = new BYTE[dwPackageSize];
+		ZeroMemory(pbyPackage, sizeof(BYTE) * dwPackageSize);
+
+		BYTE * pbyPkgIdx = pbyPackage;
+		memcpy(pbyPkgIdx, ptPkg->byFrmBeg, sizeof(ptPkg->byFrmBeg));
+		pbyPkgIdx += sizeof(ptPkg->byFrmBeg);
+		memcpy(pbyPkgIdx, &ptPkg->byStyle, sizeof(ptPkg->byStyle));
+		pbyPkgIdx += sizeof(ptPkg->byStyle);
+		memcpy(pbyPkgIdx, &ptPkg->byMode, sizeof(ptPkg->byMode));
+		pbyPkgIdx += sizeof(ptPkg->byMode);
+		memcpy(pbyPkgIdx, &ptPkg->dwDataSize, sizeof(ptPkg->dwDataSize));
+		pbyPkgIdx += sizeof(ptPkg->dwDataSize);
+		if (ptPkg->byMode & TRN_PKG_MODE_ENABLECRC)
+		{
+			ptPkg->dwDataCRC32 = (DWORD)GetCRC32(ptPkg->byData, ptPkg->dwDataSize);
+			memcpy(pbyPkgIdx, &ptPkg->dwDataCRC32, sizeof(ptPkg->dwDataCRC32));
+			pbyPkgIdx += sizeof(ptPkg->dwDataCRC32);
+		}
+		memcpy(pbyPkgIdx, &ptPkg->dwMsgNumber, sizeof(ptPkg->dwMsgNumber));
+		pbyPkgIdx += sizeof(ptPkg->dwMsgNumber);
+		memcpy(pbyPkgIdx, &ptPkg->dwMsgTotal, sizeof(ptPkg->dwMsgTotal));
+		pbyPkgIdx += sizeof(ptPkg->dwMsgTotal);
+		memcpy(pbyPkgIdx, &ptPkg->byData, ptPkg->dwDataSize);
+		pbyPkgIdx += ptPkg->dwDataSize;
+		memcpy(pbyPkgIdx, &ptPkg->byFrmEnd, sizeof(ptPkg->byFrmEnd));
+		pbyPkgIdx += sizeof(ptPkg->byFrmEnd);
+		
+		if (dwPackageSize == (pbyPkgIdx - pbyPackage) * sizeof(BYTE))
+		{
+			int iSended = 0;
+			if (SOCKET_ERROR == (iSended = sendto(m_hSockChatMark,
+				(char *)pbyPackage, (int)dwPackageSize, 0,
+				(SOCKADDR *)(&m_tSockAddrMulticast), sizeof(m_tSockAddrMulticast))))
+			{
+				ErrMsgBox(TEXT("Send"), TEXT("sendto"));
+				delete [] pbyPackage;
+				return false;
+			}
+
+			if (iSended != dwPackageSize)
+			{
+				delete [] pbyPackage;
+				return false;
+			}
+		}
+		else
+		{
+			delete[] pbyPackage;
+			return false;
+		}
+		
+		delete[] pbyPackage;
+		return true;
+	}
+
+	bool Recv(SOCKADDR_IN * ptSockAddrFrom = nullptr, TPackage * ptPackage = nullptr)
+	{
+		TPackage * ptPkg = &m_tPackage;
+		if (ptPackage)
+		{
+			ptPkg = ptPackage;
+		}
+
+		BYTE * pbyPackage = new BYTE[sizeof(TPackage)];
+		ZeroMemory(pbyPackage, sizeof(TPackage));
+		int iSockAddrFromLen = sizeof(SOCKADDR_IN);
+		int iRead = recvfrom(m_hSockChatMark,
+			(char *)pbyPackage, sizeof(TPackage), 0,
+			(SOCKADDR *)ptSockAddrFrom, &iSockAddrFromLen);
+		if (iRead == SOCKET_ERROR)
+		{
+			ErrMsgBox(TEXT("Recv"), TEXT("recvfrom"));
+			delete [] pbyPackage;
+			return false;
+		}
+
+		if ((pbyPackage[0] != ptPkg->byFrmBeg[0]) ||
+			(pbyPackage[1] != ptPkg->byFrmBeg[1]) ||
+			(pbyPackage[iRead - 2] != ptPkg->byFrmEnd[0]) ||
+			(pbyPackage[iRead - 1] != ptPkg->byFrmEnd[1]))
+		{
+			delete [] pbyPackage;
+			return false;
+		}
+
+		BYTE * pbyPkgIdx = pbyPackage;
+		pbyPkgIdx += sizeof(ptPkg->byFrmBeg);
+		memcpy(&ptPkg->byStyle, pbyPkgIdx, sizeof(ptPkg->byStyle));
+		pbyPkgIdx += sizeof(ptPkg->byStyle);
+		memcpy(&ptPkg->byMode, pbyPkgIdx, sizeof(ptPkg->byMode));
+		pbyPkgIdx += sizeof(ptPkg->byMode);
+		memcpy(&ptPkg->dwDataSize, pbyPkgIdx, sizeof(ptPkg->dwDataSize));
+		pbyPkgIdx += sizeof(ptPkg->dwDataSize);
+		if (ptPkg->byMode & TRN_PKG_MODE_ENABLECRC)
+		{
+			memcpy(&ptPkg->dwDataCRC32, pbyPkgIdx, sizeof(ptPkg->dwDataCRC32));
+			pbyPkgIdx += sizeof(ptPkg->dwDataCRC32);
+		}
+		memcpy(&ptPkg->dwMsgNumber, pbyPkgIdx, sizeof(ptPkg->dwMsgNumber));
+		pbyPkgIdx += sizeof(ptPkg->dwMsgNumber);
+		memcpy(&ptPkg->dwMsgTotal, pbyPkgIdx, sizeof(ptPkg->dwMsgTotal));
+		pbyPkgIdx += sizeof(ptPkg->dwMsgTotal);
+		memcpy(&ptPkg->byData, pbyPkgIdx, ptPkg->dwDataSize);
+		pbyPkgIdx += ptPkg->dwDataSize;
+		pbyPkgIdx += sizeof(ptPkg->byFrmEnd);
+
+		if (iRead == (pbyPkgIdx - pbyPackage) * sizeof(BYTE))
+		{
+			if (ptPkg->byMode & TRN_PKG_MODE_ENABLECRC)
+			{
+				DWORD CRC32 = (DWORD)GetCRC32(ptPkg->byData, ptPkg->dwDataSize);
+				if (CRC32 != ptPkg->dwDataCRC32)
+				{
+					delete [] pbyPackage;
+					return false;
+				}
+			}
+		}
+		else
+		{
+			delete [] pbyPackage;
+			return false;
+		}
+
+		delete [] pbyPackage;
+		return true;
+	}
+
 private:
 
 	HWND m_hwnd;
@@ -298,10 +565,8 @@ private:
 	unsigned int m_uiPackageSize;
 	unsigned int m_uiTTL;
 
-	SOCKET m_hSock;
+	SOCKET m_hSock, m_hSockChatMark; // m_hSockChatMark is the same as m_hSock
 	SOCKADDR_IN m_tSockAddrIn;
 	//IP_MREQ m_tMulticastIPMERQ;
 	SOCKADDR_IN m_tSockAddrMulticast;
-
-	SOCKET m_hSockChatMark;
 };

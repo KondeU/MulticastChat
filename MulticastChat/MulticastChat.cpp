@@ -178,11 +178,13 @@ BOOL CALLBACK DlgProcLogo(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 	case WM_INITDIALOG:
 		cTrans.SetHwnd(hDlg);
 		SetTimer(hDlg, 0, 1000, NULL); // Delay at least 1000ms to display the logo
+		return TRUE;
+
+	case WM_SHOWWINDOW:
 		PostMessage(hDlg, (WM_APP + 0x100), 0, 0);
 		return TRUE;
 
-	case (WM_APP + 0x100):	
-		ShowWindow(hDlg, SW_SHOW);
+	case (WM_APP + 0x100):
 		if (!cTrans.EnterChat())
 		{
 			MessageBox(hDlg,
@@ -209,21 +211,61 @@ BOOL CALLBACK DlgProcChat(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	//static COSDlg cOpenDlg(hDlg);
 	//static COSDlg cSaveDlg(hDlg);
+	//cOpenDlg.SetFilter(2, TEXT("文本文件（*.txt）"), TEXT("*.txt"), TEXT("所有文件（*.*）"), TEXT("*.*"));
+	//cOpenDlg.SetDefExt(TEXT("txt"));
+	//cSaveDlg.SetFilter(2, TEXT("文本文件（*.txt）"), TEXT("*.txt"), TEXT("所有文件（*.*）"), TEXT("*.*"));
+	//cSaveDlg.SetDefExt(TEXT("txt"));
 
 	switch (message)
 	{
 	case WM_INITDIALOG:
-		cTrans.SetHwnd(hDlg);
-		//cOpenDlg.SetFilter(2, TEXT("文本文件（*.txt）"), TEXT("*.txt"), TEXT("所有文件（*.*）"), TEXT("*.*"));
-		//cOpenDlg.SetDefExt(TEXT("txt"));
-		//cSaveDlg.SetFilter(2, TEXT("文本文件（*.txt）"), TEXT("*.txt"), TEXT("所有文件（*.*）"), TEXT("*.*"));
-		//cSaveDlg.SetDefExt(TEXT("txt"));
-		if (!cTrans.StartChat())
 		{
-			MessageBox(hDlg,
-				TEXT("加入聊天室失败！请检查网络状态或联系管理员！"),
-				szAppNameChn, MB_ICONERROR | MB_OK);
-			EndDialog(hDlg, 100);
+			cTrans.SetHwnd(hDlg);
+
+			TString szWindowsName(TEXT("MulticastChat多播聊天室"));
+			szWindowsName += TEXT(" - ");
+			szWindowsName += cTrans.GetMulticastIP();
+			szWindowsName += TEXT(" - ");
+			szWindowsName += cTrans.GetMulticastPortString();
+			SetWindowText(hDlg, szWindowsName.c_str());
+
+			if (!cTrans.BeginChat())
+			{
+				MessageBox(hDlg,
+					TEXT("加入聊天室失败！请检查网络状态或联系管理员！"),
+					szAppNameChn, MB_ICONERROR | MB_OK);
+				EndDialog(hDlg, 100);
+			}
+		}
+		return TRUE;
+
+	case WM_SHOWWINDOW:
+		{
+			TString szSend(TEXT("[系统消息]\r\n"));
+			szSend += cTrans.GetName();
+			szSend += TEXT(" 加入当前多播聊天室内。");
+
+			cTrans.m_tPackage.byStyle     = TRN_PKG_STYLE_MESSAGE;
+			cTrans.m_tPackage.byMode      = 0;
+			
+			cTrans.m_tPackage.dwDataSize = (szSend.length() + 1) * sizeof(TCHAR);
+			cTrans.m_tPackage.dwDataCRC32 = 0;
+			
+			cTrans.m_tPackage.dwMsgNumber = 0;
+			cTrans.m_tPackage.dwMsgTotal  = 1;
+			
+			memcpy(cTrans.m_tPackage.byData, szSend.data(), cTrans.m_tPackage.dwDataSize);
+
+			cTrans.Send();
+		}
+		return TRUE;
+
+	case WM_SOCKRECV:
+		{
+			SOCKADDR_IN tSockAddrFrom;
+			cTrans.Recv(&tSockAddrFrom);
+
+
 		}
 		return TRUE;
 
@@ -231,16 +273,25 @@ BOOL CALLBACK DlgProcChat(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 		switch (LOWORD(wParam))
 		{
 		case IDOK:
-		{
+			{
+			}
+			break;
+
+		case IDCANCEL:
+			SendMessage(hDlg, WM_CLOSE, 0, 0);
+			break;
 		}
-		break;
-		}
-		break;
+		return TRUE;
 
 	case WM_CLOSE:
-		cTrans.StopChat();
-		EndDialog(hDlg, 1);
-		break;
+		if (IDOK == MessageBox(hDlg,
+			TEXT("确认即将退出聊天室？若正在传输文件，任务将被迫终止。"),
+			szAppNameChn, MB_ICONWARNING | MB_OKCANCEL))
+		{
+			cTrans.EndChat();
+			EndDialog(hDlg, 1);
+		}
+		return TRUE;
 	}
 
 	return FALSE;
