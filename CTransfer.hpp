@@ -73,6 +73,24 @@ uint32_t GetCRC32(CONST BYTE * pbyBuffer, unsigned int uiSize)
 	return CRC ^ 0xFFFFFFFF;// Final XOR value
 }
 
+TString & UpdateChatMsgBuf(TString & tNewChat)
+{
+	static vector<TString> vChatMsgBuf(50);
+	static TString szChatMsgBuf;
+
+	vChatMsgBuf.erase(vChatMsgBuf.begin());
+	vChatMsgBuf.push_back(tNewChat);
+
+	szChatMsgBuf.clear();
+	for (size_t n = 0; n < vChatMsgBuf.size() - 1; n++)
+	{
+		szChatMsgBuf += vChatMsgBuf[n] + TEXT("\r\n");
+	}
+	szChatMsgBuf += vChatMsgBuf[vChatMsgBuf.size() - 1];
+
+	return szChatMsgBuf;
+}
+
 class CTransfer
 {
 public:
@@ -143,6 +161,18 @@ public:
 		return m_szName;
 	}
 
+	TString GetInfo() const
+	{
+		TString szInfo;
+		szInfo += TEXT("Multicast chat IP: ");
+		szInfo += m_szMulticastIP + TEXT("\r\n");
+		szInfo += TEXT("Multicast chat Port: ");
+		szInfo += GetMulticastPortString() + TEXT("\r\n");
+		szInfo += TEXT("Name: ");
+		szInfo += m_szName;
+		return szInfo;
+	}
+
 	bool EnterChat()
 	{
 		m_hSock = WSASocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0,
@@ -168,10 +198,10 @@ public:
 			(char *)&iTTL, sizeof(iTTL)))
 		{
 			ErrMsgBox(TEXT("EnterChat"), TEXT("setsockopt - IP_MULTICAST_TTL"));
-
+		
 			closesocket(m_hSock);
 			m_hSock = NULL;
-
+		
 			return false;
 		}
 		int iLoopBack = 1;
@@ -180,12 +210,16 @@ public:
 			(char *)&iLoopBack, sizeof(iLoopBack)))
 		{
 			ErrMsgBox(TEXT("EnterChat"), TEXT("setsockopt - IP_MULTICAST_LOOP"));
-
+		
 			closesocket(m_hSock);
 			m_hSock = NULL;
-
+		
 			return false;
 		}
+		//WSAIoctl(m_hSock, SIO_MULTICAST_SCOPE, &iTTL,
+		//	sizeof(iTTL), NULL, 0, &dwCbRet, NULL, NULL);
+		//err = WSAIoctl(m_hSock, SIO_MULTIPOINT_LOOPBACK, &iLoopBack,
+		//	sizeof(iLoopBack), NULL, 0, &dwCbRet, NULL, NULL);
 
 		ZeroMemory(&m_tSockAddrIn, sizeof(m_tSockAddrIn));
 		m_tSockAddrIn.sin_family = AF_INET;
@@ -385,6 +419,7 @@ public:
 
 		#define TRN_PKG_STYLE_MESSAGE  0
 		#define TRN_PKG_STYLE_FILE     1
+		#define TRN_PKG_STYLE_SETTING  255
 		#define TRN_PKG_MODE_ENABLECRC 0x01
 
 		TPackage()
@@ -550,6 +585,28 @@ public:
 
 		delete [] pbyPackage;
 		return true;
+	}
+
+	bool SendMsg(TString & szSend, TPackage * ptPackage = nullptr)
+	{
+		TPackage * ptPkg = &m_tPackage;
+		if (ptPackage)
+		{
+			ptPkg = ptPackage;
+		}
+
+		ptPkg->byStyle     = TRN_PKG_STYLE_MESSAGE;
+		ptPkg->byMode      = 0;
+		
+		ptPkg->dwDataSize  = (szSend.length() + 1) * sizeof(TCHAR);
+		ptPkg->dwDataCRC32 = 0;
+		
+		ptPkg->dwMsgNumber = 0;
+		ptPkg->dwMsgTotal  = 1;
+		
+		memcpy(ptPkg->byData, szSend.data(), ptPkg->dwDataSize);
+
+		return Send(ptPkg);
 	}
 
 private:

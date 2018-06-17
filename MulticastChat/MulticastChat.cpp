@@ -12,6 +12,8 @@ CTransfer cTrans;           // or will cause redefinition error.
 				"language='*'\"")
 #include "resource.h"
 
+#include <process.h>
+
 #include "../CmnDlg.hpp"
 using namespace COMMONDIALOG;
 
@@ -22,6 +24,27 @@ static const TCHAR szAppNameChn[] = TEXT("MulticastChat多播聊天室");
 
 static const TCHAR szUserLicense[] =
 	TEXT("MulticastChat多播聊天室使用协议及软件说明：\r\n");
+
+void AppendEdit(HWND hWnd, INT nEditItemID, LPCTSTR szOutputString, ...)
+{
+	HWND hEdit = GetDlgItem(hWnd, nEditItemID);
+
+	TCHAR szBuffer[4096] = { 0 }; // Max buffer size is 4096
+
+	va_list vlArgs;
+	va_start(vlArgs, szBuffer);
+	#ifdef UNICODE
+	_vsnwprintf_s(szBuffer, sizeof(szBuffer), szOutputString, vlArgs);
+	#else
+	_vsnprintf_s(szBuffer, sizeof(szBuffer), szOutputString, vlArgs);
+	#endif
+	va_end(vlArgs);
+
+	SendMessage(hEdit, EM_SETSEL, -2, -1);
+	SendMessage(hEdit, EM_REPLACESEL, TRUE, (LPARAM)szBuffer);
+
+	SendMessage(hEdit, WM_VSCROLL, SB_BOTTOM, 0);
+}
 
 BOOL CALLBACK DlgProcAdd(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 BOOL CALLBACK DlgProcLogo(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
@@ -243,29 +266,42 @@ BOOL CALLBACK DlgProcChat(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 		{
 			TString szSend(TEXT("[系统消息]\r\n"));
 			szSend += cTrans.GetName();
-			szSend += TEXT(" 加入当前多播聊天室内。");
+			szSend += TEXT(" 加入当前多播聊天室。");
 
-			cTrans.m_tPackage.byStyle     = TRN_PKG_STYLE_MESSAGE;
-			cTrans.m_tPackage.byMode      = 0;
-			
-			cTrans.m_tPackage.dwDataSize = (szSend.length() + 1) * sizeof(TCHAR);
-			cTrans.m_tPackage.dwDataCRC32 = 0;
-			
-			cTrans.m_tPackage.dwMsgNumber = 0;
-			cTrans.m_tPackage.dwMsgTotal  = 1;
-			
-			memcpy(cTrans.m_tPackage.byData, szSend.data(), cTrans.m_tPackage.dwDataSize);
-
-			cTrans.Send();
+			cTrans.SendMsg(szSend);
 		}
 		return TRUE;
 
 	case WM_SOCKRECV:
 		{
 			SOCKADDR_IN tSockAddrFrom;
-			cTrans.Recv(&tSockAddrFrom);
+			if (cTrans.Recv(&tSockAddrFrom))
+			{
+				switch (cTrans.m_tPackage.byStyle)
+				{
+				case TRN_PKG_STYLE_MESSAGE:
+					{
+						TString szRecv((TCHAR *)cTrans.m_tPackage.byData);
 
+						szRecv += TEXT("\r\n--- IP: ");
+						TCHAR szIP[16] = { 0 };
+						InetNtop(AF_INET, &tSockAddrFrom.sin_addr, szIP, 16);
+						szRecv += szIP;
+						szRecv += TEXT(" ---\r\n");
 
+						TString & szShow = UpdateChatMsgBuf(szRecv);
+						SetDlgItemText(hDlg, IDC_EDIT_RECV, szShow.c_str());
+						SendDlgItemMessage(hDlg, IDC_EDIT_RECV, WM_VSCROLL, SB_BOTTOM, 0);
+					}
+					break;
+
+				case TRN_PKG_STYLE_SETTING:
+					{
+
+					}
+					break;
+				}
+			}
 		}
 		return TRUE;
 
@@ -274,11 +310,47 @@ BOOL CALLBACK DlgProcChat(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 		{
 		case IDOK:
 			{
+				TString szSend(TString(TEXT("[")) + cTrans.GetName() + TString(TEXT("]\r\n")));
+
+				TCHAR szMsg[2000] = { 0 };
+				int iMsgCnt = GetWindowTextLength(GetDlgItem(hDlg, IDC_EDIT_SEND));
+				if (iMsgCnt > 2000)
+				{
+					TStringStream ss;
+					ss << TEXT("最大发送字符上限为2000字！当前编辑框字数为");
+					ss << iMsgCnt << TEXT("字。");
+					TString szMsgOutLmt;
+					ss >> szMsgOutLmt;
+
+					MessageBox(hDlg, szMsgOutLmt.c_str(), szAppNameChn, MB_ICONWARNING | MB_OK);
+				}
+				else
+				{
+					GetDlgItemText(hDlg, IDC_EDIT_SEND, szMsg, 2000);
+					szSend += szMsg;
+
+					if (cTrans.SendMsg(szSend))
+					{
+						// Send successfully
+						SetDlgItemText(hDlg, IDC_EDIT_SEND, TEXT(""));
+					}
+				}
 			}
 			break;
 
 		case IDCANCEL:
 			SendMessage(hDlg, WM_CLOSE, 0, 0);
+			break;
+
+		case IDC_BUTTON_ROOMINFO:
+			MessageBox(hDlg, cTrans.GetInfo().c_str(), szAppNameChn, MB_ICONINFORMATION | MB_OK);
+			break;
+
+		case IDC_BUTTON_SENDFILE:
+			{
+				void __cdecl SendFileThread(void * pArgc);
+				_beginthread(SendFileThread, 0, hDlg);
+			}
 			break;
 		}
 		return TRUE;
@@ -288,9 +360,78 @@ BOOL CALLBACK DlgProcChat(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 			TEXT("确认即将退出聊天室？若正在传输文件，任务将被迫终止。"),
 			szAppNameChn, MB_ICONWARNING | MB_OKCANCEL))
 		{
+			TString szSend(TEXT("[系统消息]\r\n"));
+			szSend += cTrans.GetName();
+			szSend += TEXT(" 离开当前多播聊天室。");
+
+			cTrans.SendMsg(szSend);
+
 			cTrans.EndChat();
 			EndDialog(hDlg, 1);
 		}
+		return TRUE;
+
+	// NM_CLICK (syslink)
+	case WM_NOTIFY: // This notification code is sent in the form of a WM_NOTIFY message
+		{
+			LPNMHDR hdr = (LPNMHDR)lParam;
+			if ((NM_CLICK == hdr->code) && (IDC_SYSLINK == hdr->idFrom))
+			{
+				//PNMLINK pnmLink = (PNMLINK)lParam;
+				//ShellExecuteW(hDlg, L"open", pnmLink->item.szUrl, NULL, NULL, SW_SHOWNORMAL);
+				ShellExecute(hDlg, TEXT("open"), TEXT("https://github.com/KondeU"), NULL, NULL, SW_SHOWNORMAL);
+			}
+		}
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+BOOL CALLBACK DlgProcSender(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
+void __cdecl SendFileThread(void * pArgc)
+{
+	HWND hwndParent = (HWND)pArgc;
+	//DialogBox((HINSTANCE)GetWindowLong(hwndParent, GWL_HINSTANCE),
+	//	MAKEINTRESOURCE(IDD_DIALOG_FILESENDER), hwndParent, DlgProcSender);
+	DialogBox((HINSTANCE)GetWindowLong(hwndParent, GWL_HINSTANCE),
+		MAKEINTRESOURCE(IDD_DIALOG_FILESENDER), GetDesktopWindow(), DlgProcSender);
+	_endthread();
+}
+
+BOOL CALLBACK DlgProcSender(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	switch (message)
+	{
+	case WM_INITDIALOG:
+		return TRUE;
+
+	case WM_CLOSE:
+		EndDialog(hDlg, 0);
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+BOOL CALLBACK DlgProcRecver(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
+void __cdecl RecvFileThread(void * pArgc)
+{
+	HWND hwndParent = (HWND)pArgc;
+	DialogBox((HINSTANCE)GetWindowLong(hwndParent, GWL_HINSTANCE),
+		MAKEINTRESOURCE(IDD_DIALOG_FILESENDER), GetDesktopWindow(), DlgProcRecver);
+	_endthread();
+}
+
+BOOL CALLBACK DlgProcRecver(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	switch (message)
+	{
+	case WM_INITDIALOG:
+		return TRUE;
+
+	case WM_CLOSE:
+		EndDialog(hDlg, 0);
 		return TRUE;
 	}
 
