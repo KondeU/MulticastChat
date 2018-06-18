@@ -34,7 +34,7 @@ int	 RecLength = sizeof(remote);
 struct ReceiveBuffer
 {
 	int		nID;
-	TCHAR	buf[BUFSIZE];
+	char	buf[BUFSIZE];
 };
 ReceiveBuffer buf;
 int nRBLen=sizeof(buf);
@@ -144,9 +144,6 @@ DWORD Dropmember()
 	return 1;
 }
 
-#include <sstream>
-
-//int main()
 int RecvFile(LPTSTR szFile)
 {
 	if(StartSock() == -1)
@@ -168,7 +165,7 @@ int RecvFile(LPTSTR szFile)
 	GetModuleFileName(NULL,currentPath,1024);
 
 	GetCurrentDirectory(_MAX_PATH,currentPath);             //获取程序的当前目录
-	lstrcat(currentPath, TEXT("\\"));
+	strcat(currentPath, "\\");
 
 	cout << "开始从组播服务器接收文件......" << endl;
 
@@ -190,26 +187,11 @@ int RecvFile(LPTSTR szFile)
 			//如果是开始传送消息，那么传过来的是文件名
 			else if(buf.nID == MSG_FILESTART)
 			{				
-				lstrcat(currentPath, buf.buf);
+				strcat(currentPath, PathFindFileName(buf.buf));
 				lstrcpy(szFile, currentPath);
 				
 				//如果原文件存在，则将原来文件删除。并新建一个空文件
-				//std::stringstream ss;
-				//ss << currentPath;
-				//char sz[MAX_PATH];
-				//ss >> sz;
-				DWORD dwNum = WideCharToMultiByte(CP_OEMCP, NULL, currentPath, -1, NULL, 0, NULL, FALSE);
-				char *psText;
-				psText = new char[dwNum];
-				if (!psText)
-				{
-					delete[]psText;
-				}
-				WideCharToMultiByte(CP_OEMCP, NULL, currentPath, -1, psText, dwNum, NULL, FALSE);
-
-				fp = fopen(psText, "rb");
-				fp=fopen(psText, "wb");
-
+				fp=fopen(currentPath, "wb");
 				if(fp==NULL)
 				{
 					cout<< "打开文件失败!\n错误代码：" << GetLastError() << endl;
@@ -218,9 +200,7 @@ int RecvFile(LPTSTR szFile)
 				fclose(fp);
 				
 				//打开那个空文件
-				fp=fopen(psText, "ab");
-
-				delete[]psText;
+				fp=fopen(currentPath, "ab");
 			}
 
 			//如果是SHA1校验码，那么就存起来，用于最后做对比
@@ -230,7 +210,7 @@ int RecvFile(LPTSTR szFile)
 			}
 
 			//如果文件传完了。
-			else if(buf.nID == FILE_END)
+			else if(buf.nID == MSG_FILEEND)
 			{
 				//写入最后的数据，并关闭文件
 				fwrite(buf.buf, sizeof(char),nRes-sizeof(int), fp);
@@ -251,7 +231,7 @@ int RecvFile(LPTSTR szFile)
 				}
 
 				//与接收到的SHA1校验码做对比
-				if(!lstrcmp(tszReport, recvSHA1))
+				if(!strcmp(tszReport, recvSHA1))
 				{
 					cout<<"SHA1校验通过!\n文件传输成功."<<endl;
 					Dropmember();

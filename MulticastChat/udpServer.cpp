@@ -33,7 +33,7 @@ SOCKET SendSocket;
 struct SendBuffer
 {
 	int		nID;
-	TCHAR	buf[BUFSIZE];
+	char	buf[BUFSIZE];
 };
 SendBuffer buf;
 int nSBlen=sizeof(buf);
@@ -91,9 +91,6 @@ int InitSock()
 
 }
 
-#include <sstream>
-
-//int main(int argc, char *argv[])
 int SendFile(LPCTSTR szFile)
 {
 	//初始化套接字信息
@@ -117,7 +114,7 @@ int SendFile(LPCTSTR szFile)
 	GetModuleFileName(NULL,currentPath,1024);
 
 	GetCurrentDirectory(_MAX_PATH,currentPath);             //获取程序的当前目录
-	lstrcat(currentPath, TEXT("\\"));
+	strcat(currentPath, "\\");
 
 
 	TCHAR tszFilename[1024] = {0};
@@ -125,7 +122,8 @@ int SendFile(LPCTSTR szFile)
 	_tprintf(_T("\n文件名: "));
 	fflush(stdin);
 	//_getts_s(tszFilename);
-	//lstrcat(currentPath, tszFilename);
+	//strcat(currentPath, tszFilename);
+	//lstrcpy(currentPath, szFile);
 	lstrcpy(tszFilename, szFile);
 
 	//计算发送文件的SHA1校验码，存放于outSHA1中
@@ -186,23 +184,9 @@ int SendFile(LPCTSTR szFile)
 				return -1;
 			}
 			
-			//打开要发送的文件	
-			//std::stringstream ss;
-			//ss << currentPath;
-			//char sz[MAX_PATH];
-			//ss >> sz;
-			DWORD dwNum = WideCharToMultiByte(CP_OEMCP, NULL, tszFilename, -1, NULL, 0, NULL, FALSE);
-			char *psText;
-			psText = new char[dwNum];
-			if (!psText)
-			{
-				delete[]psText;
-			}
-			WideCharToMultiByte(CP_OEMCP, NULL, tszFilename, -1, psText, dwNum, NULL, FALSE);
-
-			fp = fopen(psText, "rb");
-
-			delete[]psText;
+			//打开要发送的文件			
+			//fp = fopen( currentPath, "rb" );
+			fp = fopen(tszFilename, "rb");
 			
 			//然后开始正式发送文件内容
 			nCmd=MSG_FILECONTENT;
@@ -256,3 +240,4 @@ int SendFile(LPCTSTR szFile)
 	return 0;
 
 }
+

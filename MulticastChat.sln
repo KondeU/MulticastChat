@@ -5,8 +5,6 @@ VisualStudioVersion = 14.0.25420.1
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MulticastChat", "MulticastChat\MulticastChat.vcxproj", "{1447CEC4-D136-4C73-8F41-7DC04A1EFB67}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "GetValidIP", "GetValidIP\GetValidIP.vcxproj", "{4ADF9208-A5AA-4127-848F-4AB2E7F23254}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -23,14 +21,6 @@ Global
 		{1447CEC4-D136-4C73-8F41-7DC04A1EFB67}.Release|x64.Build.0 = Release|x64
 		{1447CEC4-D136-4C73-8F41-7DC04A1EFB67}.Release|x86.ActiveCfg = Release|Win32
 		{1447CEC4-D136-4C73-8F41-7DC04A1EFB67}.Release|x86.Build.0 = Release|Win32
-		{4ADF9208-A5AA-4127-848F-4AB2E7F23254}.Debug|x64.ActiveCfg = Debug|x64
-		{4ADF9208-A5AA-4127-848F-4AB2E7F23254}.Debug|x64.Build.0 = Debug|x64
-		{4ADF9208-A5AA-4127-848F-4AB2E7F23254}.Debug|x86.ActiveCfg = Debug|Win32
-		{4ADF9208-A5AA-4127-848F-4AB2E7F23254}.Debug|x86.Build.0 = Debug|Win32
-		{4ADF9208-A5AA-4127-848F-4AB2E7F23254}.Release|x64.ActiveCfg = Release|x64
-		{4ADF9208-A5AA-4127-848F-4AB2E7F23254}.Release|x64.Build.0 = Release|x64
-		{4ADF9208-A5AA-4127-848F-4AB2E7F23254}.Release|x86.ActiveCfg = Release|Win32
-		{4ADF9208-A5AA-4127-848F-4AB2E7F23254}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
