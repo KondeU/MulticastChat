@@ -1,3 +1,7 @@
+#define _WINSOCK_DEPRECATED_NO_WARNINGS ////////
+#define _CRT_SECURE_NO_WARNINGS //////
+
+
 #include "../CTransfer.hpp" // A strange bug, the WinSock header must be before Windows.h,
 CTransfer cTrans;           // or will cause redefinition error.
 
@@ -13,6 +17,9 @@ CTransfer cTrans;           // or will cause redefinition error.
 #include "resource.h"
 
 #include <process.h>
+
+#include <Shlwapi.h>
+#pragma comment(lib,"Shlwapi.lib")
 
 #include "../CmnDlg.hpp"
 using namespace COMMONDIALOG;
@@ -99,7 +106,7 @@ BOOL CALLBACK DlgProcAdd(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 			cTrans.SetCaption(szAppNameChn);
 
 			SendDlgItemMessage(hDlg, IDC_IPADDRESS, IPM_SETRANGE, 0, MAKEIPRANGE(224, 239)); // First byte limit
-			SendDlgItemMessage(hDlg, IDC_IPADDRESS, IPM_SETADDRESS, 0, MAKEIPADDRESS(224, 0, 0, 0));
+			SendDlgItemMessage(hDlg, IDC_IPADDRESS, IPM_SETADDRESS, 0, MAKEIPADDRESS(224, 0, 2, 0));
 
 			SetDlgItemInt(hDlg, IDC_EDIT_PORT, 5500, FALSE);
 
@@ -232,13 +239,6 @@ BOOL CALLBACK DlgProcLogo(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 
 BOOL CALLBACK DlgProcChat(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
-	//static COSDlg cOpenDlg(hDlg);
-	//static COSDlg cSaveDlg(hDlg);
-	//cOpenDlg.SetFilter(2, TEXT("文本文件（*.txt）"), TEXT("*.txt"), TEXT("所有文件（*.*）"), TEXT("*.*"));
-	//cOpenDlg.SetDefExt(TEXT("txt"));
-	//cSaveDlg.SetFilter(2, TEXT("文本文件（*.txt）"), TEXT("*.txt"), TEXT("所有文件（*.*）"), TEXT("*.*"));
-	//cSaveDlg.SetDefExt(TEXT("txt"));
-
 	switch (message)
 	{
 	case WM_INITDIALOG:
@@ -259,6 +259,9 @@ BOOL CALLBACK DlgProcChat(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 					szAppNameChn, MB_ICONERROR | MB_OK);
 				EndDialog(hDlg, 100);
 			}
+
+			void __cdecl RecvFileThread(void * pArgc);
+			_beginthread(RecvFileThread, 0, hDlg); ///////
 		}
 		return TRUE;
 
@@ -388,6 +391,7 @@ BOOL CALLBACK DlgProcChat(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 	return FALSE;
 }
 
+/*
 BOOL CALLBACK DlgProcSender(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 void __cdecl SendFileThread(void * pArgc)
 {
@@ -401,12 +405,167 @@ void __cdecl SendFileThread(void * pArgc)
 
 BOOL CALLBACK DlgProcSender(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
+	struct TStaticSender
+	{
+		HWND hDlg;
+		COSDlg cOpenDlg;
+		CFileTransfer cFileTrans;
+		HANDLE hFile;
+
+		TStaticSender(HWND hwnd) : cOpenDlg(hwnd)
+		{
+			hDlg = hwnd;
+		}
+	};
+	static vector<TStaticSender> vStatic;
+	
+	COSDlg * pcOpenDlg = nullptr; // Use to process
+	CFileTransfer * pcFileTrans = nullptr; // Use to process
+	HANDLE * phFile = nullptr; // Use to process
+
+	bool bGetStatic = false;
+	for (size_t n = 0; n < vStatic.size(); n++)
+	{
+		if (hDlg == vStatic[n].hDlg)
+		{
+			bGetStatic = true;
+			pcOpenDlg = &(vStatic[n].cOpenDlg);
+			pcFileTrans = &(vStatic[n].cFileTrans);
+			break;
+		}
+	}
+	if (bGetStatic)
+	{
+		TStaticSender tStaticNew(hDlg);
+		vStatic.push_back(tStaticNew);
+	}
+
 	switch (message)
 	{
 	case WM_INITDIALOG:
+		pcOpenDlg->SetFilter(1, TEXT("所有文件（*.*）"), TEXT("*.*"));
+		CheckDlgButton(hDlg, IDC_CHECK_FILECRC32, TRUE);
+		SetDlgItemInt(hDlg, IDC_EDIT_ASKDELAY, 0, FALSE);
+		SetDlgItemInt(hDlg, IDC_EDIT_TRANSFERPORT, 5600, FALSE);
+		return TRUE;
+
+	case WM_COMMAND:
+		switch (LOWORD(wParam))
+		{
+		case IDOK: // Ask transfer file
+			{
+				EnableWindow(GetDlgItem(hDlg, IDOK), FALSE);
+				
+				cTrans.m_tPackage.byStyle = TRN_PKG_STYLE_SETTING;
+				cTrans.m_tPackage.byMode = TRN_PKG_MODE_SETTING_TRANSASK;
+
+				cTrans.m_tPackage.dwMsgNumber = 0;
+				cTrans.m_tPackage.dwMsgTotal = 1;
+
+				unsigned int uiPort = GetDlgItemInt(hDlg, IDC_EDIT_TRANSFERPORT, nullptr, FALSE);
+
+				pcFileTrans->GenerateKey();
+
+				TCHAR szFile[MAX_PATH];
+				GetDlgItemText(hDlg, IDC_EDIT_SENDFILE, szFile, MAX_PATH);
+				TCHAR * szSimpFile = PathFindFileName(szFile);
+
+				cTrans.m_tPackage.dwDataSize = sizeof(uiPort) +
+					sizeof(CFileTransfer::TFileData::byKey) + (lstrlen(szSimpFile) + 1) * sizeof(TCHAR);
+
+				memcpy(cTrans.m_tPackage.byData, &uiPort, sizeof(uiPort));
+				memcpy(cTrans.m_tPackage.byData + sizeof(uiPort), pcFileTrans->m_tFileData.byKey,
+					sizeof(CFileTransfer::TFileData::byKey));
+				memcpy(((BYTE *)cTrans.m_tPackage.byData) +
+					sizeof(uiPort) + sizeof(CFileTransfer::TFileData::byKey),
+					(BYTE *)szSimpFile, (lstrlen(szSimpFile) + 1) * sizeof(TCHAR));
+
+				cTrans.Send();
+
+				pcFileTrans->SetHwnd(hDlg);
+				pcFileTrans->SetCaption(szAppNameChn);
+				pcFileTrans->InitParam(cTrans.GetMulticastIP().c_str(), cTrans.GetLocalIP().c_str(),
+					uiPort, cTrans.GetName().c_str(), cTrans.GetPackageSize(), cTrans.GetTTL());
+				pcFileTrans->EnterChat();
+				pcFileTrans->BeginChat();
+			}
+			break;
+
+		case IDC_BUTTON_SEND:
+			{
+				EnableWindow(GetDlgItem(hDlg, IDC_BUTTON_SEND), FALSE);
+
+				(*phFile) = CreateFile(pcFileTrans->GetFile().c_str(), GENERIC_WRITE,
+					0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+				
+				DWORD dwFileSize = GetFileSize(*phFile, NULL);
+
+				pcFileTrans->m_tPackage.dwMsgTotal = dwFileSize / 2048;
+				pcFileTrans->m_tPackage.dwMsgNumber = 0;
+
+				DWORD dwRead = 0;
+				ReadFile(*phFile, pcFileTrans->m_tFileData.byData, 2048, &dwRead, NULL);
+				pcFileTrans->m_tPackage.dwDataSize = dwRead + sizeof(CFileTransfer::TFileData::byKey);
+				memcpy(pcFileTrans->m_tPackage.byData, &pcFileTrans->m_tFileData,
+					pcFileTrans->m_tPackage.dwDataSize);
+				pcFileTrans->Send();
+
+				SetTimer(hDlg, 0, 1000, NULL);
+			}
+			break;
+
+		case IDC_BUTTON_SENDFILE:
+			{
+				TCHAR szCrntDir[MAX_PATH];
+				GetCurrentDirectory(MAX_PATH, szCrntDir);
+				if (pcOpenDlg->CmnDlgOpenFile())
+				{
+					SetDlgItemText(hDlg, IDC_EDIT_SENDFILE, pcOpenDlg->GetFilePath());
+				}
+				SetCurrentDirectory(szCrntDir);
+			}
+			break;
+		}
+		return TRUE;
+
+	case WM_TIMER:
+		return TRUE;
+
+	case WM_SOCKRECV:
+		{
+			SOCKADDR_IN tSockAddrFrom;
+			if (pcFileTrans->Recv(&tSockAddrFrom))
+			{
+				if (TRN_PKG_STYLE_FILE == pcFileTrans->m_tPackage.byStyle)
+				{
+
+				}
+				else if (TRN_PKG_STYLE_SETTING == pcFileTrans->m_tPackage.byStyle)
+				{
+					if (TRN_PKG_MODE_SETTING_TRANSACCEPT == pcFileTrans->m_tPackage.byMode)
+					{
+
+					}
+				}
+			}
+
+			
+		}
 		return TRUE;
 
 	case WM_CLOSE:
+		// 文件是否传完？退出？
+		
+		CloseHandle(*phFile);
+		pcFileTrans->EndChat();
+		for (size_t n = 0; n < vStatic.size(); n++)
+		{
+			if (hDlg == vStatic[n].hDlg)
+			{
+				vStatic.erase(vStatic.begin() + n);
+				break;
+			}
+		}
 		EndDialog(hDlg, 0);
 		return TRUE;
 	}
@@ -436,4 +595,46 @@ BOOL CALLBACK DlgProcRecver(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
 	}
 
 	return FALSE;
+}
+*/
+
+int SendFile(LPCTSTR szFile);
+void __cdecl SendFileThread(void * pArgc)
+{
+	TCHAR szFile[MAX_PATH];
+
+	COSDlg cOpenDlg(NULL);
+	cOpenDlg.SetFilter(1, TEXT("所有文件（*.*）"), TEXT("*.*"));
+
+	TCHAR szCrntDir[MAX_PATH];
+	GetCurrentDirectory(MAX_PATH, szCrntDir);
+	if (cOpenDlg.CmnDlgOpenFile())
+	{
+		lstrcpy(szFile, cOpenDlg.GetFilePath());
+	}
+	SetCurrentDirectory(szCrntDir);
+
+	SendFile(szFile);
+
+	MessageBox(NULL, TEXT("发送完成！"), szAppNameChn, MB_OK);
+
+	_endthread();
+}
+
+int RecvFile(LPTSTR szFile);
+void __cdecl RecvFileThread(void * pArgc)
+{
+	TCHAR szFile[MAX_PATH];
+
+	while (true)
+	{
+		RecvFile(szFile);
+		
+		TCHAR szInfo[1024];
+		wsprintf(szInfo, TEXT("多播网络上接收到文件，保存至\r\n%s"), szFile);
+
+		MessageBox(NULL, szInfo, szAppNameChn, MB_OK);
+	}
+
+	_endthread();
 }

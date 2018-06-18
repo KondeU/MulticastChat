@@ -156,6 +156,11 @@ public:
 		return sz;
 	}
 
+	TString GetLocalIP() const
+	{
+		return m_szLocalIP;
+	}
+
 	TString GetName() const
 	{
 		return m_szName;
@@ -171,6 +176,16 @@ public:
 		szInfo += TEXT("Name: ");
 		szInfo += m_szName;
 		return szInfo;
+	}
+
+	unsigned int GetPackageSize() const
+	{
+		return m_uiPackageSize;
+	}
+
+	unsigned int GetTTL() const
+	{
+		return m_uiTTL;
 	}
 
 	bool EnterChat()
@@ -626,4 +641,66 @@ private:
 	SOCKADDR_IN m_tSockAddrIn;
 	//IP_MREQ m_tMulticastIPMERQ;
 	SOCKADDR_IN m_tSockAddrMulticast;
+};
+
+class CFileTransfer : public CTransfer
+{
+public:
+
+	#define TRN_PKG_MODE_SETTING_TRANS       (1 << 3)
+	#define TRN_PKG_MODE_SETTING_TRANSASK    TRN_PKG_MODE_SETTING_TRANS
+	#define TRN_PKG_MODE_SETTING_TRANSACCEPT (TRN_PKG_MODE_SETTING_TRANS | (1 << 1))
+	#define TRN_PKG_MODE_SETTING_TRANSREJECT (TRN_PKG_MODE_SETTING_TRANS | (1 << 2))
+	#define TRN_PKG_MODE_SETTING_TRANSCANCEL (TRN_PKG_MODE_SETTING_TRANS | (1 << 1) | (1 << 2))
+
+	struct TFileData
+	{
+		BYTE byKey[16];
+		BYTE byData[2048];
+	} m_tFileData;
+
+	CFileTransfer()
+	{
+		m_tPackage.byStyle = TRN_PKG_STYLE_FILE;
+		m_tPackage.dwDataSize = sizeof(m_tFileData);
+	}
+
+	void GenerateKey()
+	{
+		srand((unsigned int)GetTickCount());
+		for (int i = 0; i < 16; i++)
+		{
+			m_tFileData.byKey[i] = (BYTE)(rand() % 256);
+		}
+	}
+
+	void SetKey(BYTE byKey[16])
+	{
+		memcpy(m_tFileData.byKey, byKey, 16 * sizeof(BYTE));
+	}
+
+	bool SendFileBlock(BYTE byBlock[2048], DWORD dwMsgNumber, DWORD dwMsgTotal)
+	{
+		memcpy(m_tFileData.byData, byBlock, 2048 * sizeof(BYTE));
+		memcpy(m_tPackage.byData, &m_tFileData, sizeof(m_tFileData));
+
+		m_tPackage.dwMsgNumber = dwMsgNumber;
+		m_tPackage.dwMsgTotal = dwMsgTotal;
+
+		return Send();
+	}
+
+	void SelectFile(LPCTSTR szFile)
+	{
+		m_szFile = szFile;
+	}
+
+	TString GetFile() const
+	{
+		return m_szFile;
+	}
+
+private:
+
+	TString m_szFile;
 };
