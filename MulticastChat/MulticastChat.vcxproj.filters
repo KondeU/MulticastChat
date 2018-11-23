@@ -27,9 +27,6 @@
     <ClInclude Include="..\CTransfer.hpp">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="SHA1.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="MulticastChat.rc">
@@ -38,15 +35,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="MulticastChat.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="SHA1.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="udpClient.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
-    <ClCompile Include="udpServer.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

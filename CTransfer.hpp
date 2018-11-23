@@ -302,7 +302,7 @@ public:
 		if (SOCKET_ERROR == WSAAsyncSelect(m_hSockChatMark, m_hwnd, WM_SOCKRECV, FD_READ))
 		{
 			ErrMsgBox(TEXT("BeginChat"), TEXT("WSAAsyncSelect"));
-
+		
 			return false;
 		}
 

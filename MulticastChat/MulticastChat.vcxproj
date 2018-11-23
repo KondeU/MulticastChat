@@ -29,7 +29,7 @@
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v140</PlatformToolset>
-    <CharacterSet>MultiByte</CharacterSet>
+    <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -151,16 +151,12 @@
     <ClInclude Include="..\CTransfer.hpp" />
     <ClInclude Include="..\Logger.hpp" />
     <ClInclude Include="resource.h" />
-    <ClInclude Include="SHA1.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="MulticastChat.rc" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="MulticastChat.cpp" />
-    <ClCompile Include="SHA1.cpp" />
-    <ClCompile Include="udpClient.cpp" />
-    <ClCompile Include="udpServer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="..\icon.ico" />
